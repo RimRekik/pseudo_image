@@ -312,9 +312,12 @@ def create_dataloaders(
     test_ds = MS1NpyDataset(test_samples, target_size=target_size, normalize=normalize,
                              noise_threshold=noise_threshold)
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                               num_workers=num_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
+                             num_workers=num_workers, pin_memory=True)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False,
+                              num_workers=num_workers, pin_memory=True)
 
     return train_loader, val_loader, test_loader, class_to_idx
 
