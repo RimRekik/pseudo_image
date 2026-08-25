@@ -108,6 +108,10 @@ def load_args():
     parser.add_argument('--output', type=str, default='output/test_predictions.csv',
                          help="Chemin du CSV listant les prédictions détaillées du test set "
                               "(1 ligne par fichier : chemin, vraie classe, classe prédite, correct)")
+    parser.add_argument('--cv_folds', type=int, default=5,
+                         help="[cross_validate.py uniquement] Nombre de folds pour la validation croisée")
+    parser.add_argument('--cv_output_dir', type=str, default='output_cv',
+                         help="[cross_validate.py uniquement] Dossier de sortie du rapport de CV")
 
     args = parser.parse_args()
     return args
