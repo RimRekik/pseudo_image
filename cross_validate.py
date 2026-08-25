@@ -261,6 +261,84 @@ def main():
         f.write("\n".join(report_lines))
     print(f"\n[cv] Rapport complet sauvegardé dans {output_dir / 'cv_report.txt'}")
 
+    if HAS_SKLEARN:
+        analyze_count_vs_accuracy(samples, all_labels_agg, all_preds_agg, class_to_idx, output_dir)
+
+
+def analyze_count_vs_accuracy(samples, all_labels_agg, all_preds_agg, class_to_idx, output_dir):
+    """
+    Quantifie le lien entre le nombre d'échantillons par classe (dans
+    l'ensemble du dataset) et la précision (recall) du modèle sur cette
+    classe -- même type d'analyse que dans Etude_data_scarcity_impact.pdf.
+    Calcule aussi le coefficient de corrélation de Pearson entre les deux.
+    """
+    idx_to_class = {v: k for k, v in class_to_idx.items()}
+    num_classes = len(class_to_idx)
+
+    # Nombre total d'échantillons par classe dans le dataset (avant split)
+    n_samples_per_class = Counter(s["label"] for s in samples)
+
+    # Recall par classe sur les prédictions agrégées (tous les folds = 100% des données testées)
+    all_labels_agg = np.array(all_labels_agg)
+    all_preds_agg = np.array(all_preds_agg)
+    recall_per_class = {}
+    for c in range(num_classes):
+        mask = all_labels_agg == c
+        recall_per_class[c] = float((all_preds_agg[mask] == c).mean()) if mask.sum() > 0 else float("nan")
+
+    rows = []
+    for c in range(num_classes):
+        rows.append({
+            "classe": idx_to_class[c],
+            "nb_echantillons_total": n_samples_per_class.get(c, 0),
+            "recall": recall_per_class[c],
+        })
+    rows.sort(key=lambda r: r["nb_echantillons_total"])
+
+    x = np.array([r["nb_echantillons_total"] for r in rows], dtype=float)
+    y = np.array([r["recall"] for r in rows], dtype=float)
+    if len(x) >= 2 and np.std(x) > 0 and np.std(y) > 0:
+        pearson_r = float(np.corrcoef(x, y)[0, 1])
+    else:
+        pearson_r = float("nan")
+
+    print("\n[cv] === Lien nb échantillons / précision par classe ===")
+    print(f"{'Classe':<28} {'Nb échantillons':>16} {'Recall':>10}")
+    for r in rows:
+        print(f"{r['classe']:<28} {r['nb_echantillons_total']:>16} {r['recall']:>10.3f}")
+    print(f"\n[cv] Corrélation de Pearson (nb échantillons vs recall) : r = {pearson_r:.3f}")
+    if not np.isnan(pearson_r):
+        if pearson_r > 0.5:
+            interp = "corrélation positive marquée -> plus de données = meilleure précision sur cette classe"
+        elif pearson_r > 0.2:
+            interp = "corrélation positive faible/modérée"
+        elif pearson_r > -0.2:
+            interp = "pas de lien clair (le modèle est déjà bon même sur les classes peu représentées)"
+        else:
+            interp = "corrélation négative (surprenant -- à examiner, souvent lié à une classe difficile indépendamment de sa taille)"
+        print(f"[cv] Interprétation : {interp}")
+
+    with open(output_dir / "count_vs_accuracy.csv", "w") as f:
+        f.write("classe,nb_echantillons_total,recall\n")
+        for r in rows:
+            f.write(f"{r['classe']},{r['nb_echantillons_total']},{r['recall']:.4f}\n")
+
+    if HAS_MATPLOTLIB:
+        fig, ax = plt.subplots(figsize=(7, 5.5))
+        ax.scatter(x, y, s=80, color="#2b6cb0")
+        for r in rows:
+            ax.annotate(r["classe"], (r["nb_echantillons_total"], r["recall"]),
+                        textcoords="offset points", xytext=(6, 4), fontsize=8)
+        ax.set_xlabel("Nombre d'échantillons dans le dataset")
+        ax.set_ylabel("Recall (précision) sur cette classe")
+        ax.set_title(f"Nb échantillons vs précision par classe (r = {pearson_r:.2f})")
+        ax.set_ylim(0, 1.05)
+        ax.grid(alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(output_dir / "count_vs_accuracy.png", dpi=150)
+        plt.close(fig)
+        print(f"[cv] Graphique sauvegardé : {output_dir / 'count_vs_accuracy.png'}")
+
 
 if __name__ == "__main__":
     main()
