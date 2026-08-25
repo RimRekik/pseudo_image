@@ -179,6 +179,12 @@ def train_model(args):
         noise_threshold=args.noise_threshold,
         seed=args.random_state,
         save_splits_to=str(output_dir / "splits"),
+        oversample=args.oversample,
+        rt_shift_prob=args.rt_shift_prob,
+        rt_shift_mean=args.rt_shift_mean,
+        rt_shift_std=args.rt_shift_std,
+        noise_prob=args.noise_prob,
+        noise_max=args.noise_max,
     )
     with open(output_dir / "class_to_idx.json", "w") as f:
         json.dump(class_to_idx, f, indent=2, ensure_ascii=False)

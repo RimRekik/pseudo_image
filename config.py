@@ -71,6 +71,24 @@ def load_args():
     parser.add_argument('--weighted_entropy', type=_str2bool, default=True,
                          help="True : pondère la loss par l'inverse de la fréquence des classes "
                               "(recommandé si classes déséquilibrées). False : CrossEntropyLoss standard.")
+    parser.add_argument('--oversample', type=_str2bool, default=False,
+                         help="True : suréchantillonne les classes rares dans le train set "
+                              "(WeightedRandomSampler) -- complémentaire à --weighted_entropy, "
+                              "peut être combiné ou utilisé seul.")
+    parser.add_argument('--rt_shift_prob', type=float, default=0.0,
+                         help="Proba d'appliquer Random_shift_rt (décalage RT via affine). "
+                              "0 (défaut) = désactivé. Appliqué train uniquement.")
+    parser.add_argument('--rt_shift_mean', type=float, default=0.0,
+                         help="Moyenne (en pixels, après resize) de la gaussienne du décalage RT.")
+    parser.add_argument('--rt_shift_std', type=float, default=5.0,
+                         help="Écart-type (en pixels, après resize) de la gaussienne du décalage RT.")
+    parser.add_argument('--noise_prob', type=float, default=0.0,
+                         help="Proba d'appliquer Random_int_noise (bruit multiplicatif). "
+                              "0 (défaut) = désactivé. Appliqué train uniquement.")
+    parser.add_argument('--noise_max', type=float, default=1.1,
+                         help="Borne du facteur multiplicatif de bruit : chaque pixel est "
+                              "multiplié par un facteur tiré uniformément entre 1/noise_max "
+                              "et noise_max (ex: 1.1 -> facteur entre ~0.91 et 1.1).")
     parser.add_argument('--batch_size', type=int, default=16)
 
     # --- Modèle ---

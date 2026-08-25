@@ -36,13 +36,14 @@ import argparse
 import csv
 import random
 import re
-from collections import defaultdict
+from collections import defaultdict, Counter
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms as transforms
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 # ---------------------------------------------------------------------------
 # Config par défaut -- à ajuster si besoin
@@ -203,6 +204,73 @@ def save_split_csv(samples, indices, out_path):
 # Dataset PyTorch
 # ---------------------------------------------------------------------------
 
+def augment_ms1(arr: np.ndarray, rt_shift_frac=0.0, noise_std=0.0, rng=None) -> np.ndarray:
+    """Conservé pour compatibilité -- voir Random_int_noise et Random_shift_rt
+    ci-dessous pour l'augmentation réellement utilisée (style torch, plus
+    fidèle à ce qui a été validé sur d'autres projets)."""
+    rng = rng or np.random
+    if rt_shift_frac > 0:
+        h = arr.shape[0]
+        max_shift = max(1, int(h * rt_shift_frac))
+        shift = rng.randint(-max_shift, max_shift + 1)
+        if shift != 0:
+            arr = np.roll(arr, shift, axis=0)
+    if noise_std > 0:
+        noise = rng.normal(loc=0.0, scale=noise_std, size=arr.shape).astype(np.float32)
+        arr = arr + noise
+    return arr
+
+
+class Random_int_noise:
+    """Avec une probabilité prob, multiplie chaque pixel par un facteur
+    aléatoire tiré uniformément entre 1/maximum et maximum -- bruit
+    multiplicatif (pas additif), appliqué sur le tensor déjà normalisé.
+    """
+    def __init__(self, prob, maximum):
+        self.prob = prob
+        self.minimum = 1 / maximum
+        self.delta = maximum - self.minimum
+
+    def __call__(self, x):
+        if np.random.rand() < self.prob:
+            return x * (self.minimum + torch.rand_like(x) * self.delta)
+        return x
+
+
+class Random_shift_rt:
+    """Avec une probabilité prob, décale verticalement l'image (axe RT) d'une
+    quantité tirée d'une distribution gaussienne(mean, std), via une
+    transformation affine (décalage continu / sous-pixel, avec interpolation).
+    """
+    def __init__(self, prob, mean, std):
+        self.prob = prob
+        self.mean = torch.tensor(float(mean))
+        self.std = float(std)
+
+    def __call__(self, x):
+        if np.random.rand() < self.prob:
+            shift = torch.normal(self.mean, self.std)
+            return transforms.functional.affine(x, 0, [0, shift.item()], 1, [0, 0])
+        return x
+
+
+def build_train_transform(rt_shift_prob=0.0, rt_shift_mean=0.0, rt_shift_std=0.0,
+                           noise_prob=0.0, noise_max=1.0):
+    """
+    Construit la pipeline d'augmentation du train set à partir des paramètres
+    CLI. Chaque augmentation reste désactivée si sa probabilité vaut 0
+    (comportement par défaut, rien ne change).
+    """
+    ops = []
+    if rt_shift_prob > 0:
+        ops.append(Random_shift_rt(prob=rt_shift_prob, mean=rt_shift_mean, std=rt_shift_std))
+    if noise_prob > 0:
+        ops.append(Random_int_noise(prob=noise_prob, maximum=noise_max))
+    if not ops:
+        return None
+    return transforms.Compose(ops)
+
+
 class MS1NpyDataset(Dataset):
     """
     Dataset PyTorch pour les pseudo-images MS1 (.npy, 2D, float32).
@@ -210,25 +278,13 @@ class MS1NpyDataset(Dataset):
     """
 
     def __init__(self, samples, target_size=DEFAULT_TARGET_SIZE, normalize="minmax", transform=None,
-                 noise_threshold=0):
+                 noise_threshold=0, augment_rt_shift_frac=0.0, augment_noise_std=0.0):
         """
-        samples      : liste de dicts (voir scan_dataset), typiquement un sous-ensemble
-                       (train/val/test) obtenu via stratified_split.
-        target_size  : (H, W) — taille de sortie après redimensionnement (224x224
-                       par défaut, standard pour les backbones ImageNet).
-        normalize    : 'minmax' (par défaut -- adapté à des données DÉJÀ en
-                       échelle log10, comme les tiennes : on ne fait qu'un
-                       min-max par image, sans reprendre un log dessus),
-                       'log1p_minmax' (log1p + min-max -- à utiliser SEULEMENT
-                       si les .npy sont en intensité brute/linéaire, PAS déjà
-                       log-transformés, sous peine de double-log),
-                       'zscore', ou None (aucune normalisation).
-        transform    : fonction optionnelle appliquée APRES normalisation
-                       (ex: augmentation), signature: tensor[1,H,W] -> tensor[1,H,W].
-        noise_threshold : seuil (sur la valeur BRUTE lue dans le .npy, avant
-                       normalisation) sous lequel les intensités sont ramenées à
-                       la valeur min de l'image -- filtrage simple du bruit de
-                       fond. 0 (défaut) = désactivé, aucun effet.
+        ...
+        transform    : fonction/pipeline optionnelle appliquée APRES resize+normalisation
+                       (typiquement Random_shift_rt + Random_int_noise via
+                       build_train_transform() -- voir create_dataloaders).
+                       A passer SEULEMENT pour le train set, jamais val/test.
         """
         self.samples = samples
         self.target_size = target_size
@@ -266,7 +322,7 @@ class MS1NpyDataset(Dataset):
         tensor = tensor.squeeze(0)  # -> [1,H,W]
 
         if self.transform is not None:
-            tensor = self.transform(tensor)
+            tensor = self.transform(tensor)  # Random_shift_rt / Random_int_noise (train uniquement)
 
         return tensor, entry["label"], entry["protocol"]
 
@@ -287,6 +343,12 @@ def create_dataloaders(
     normalize: str = "minmax",
     noise_threshold: int = 0,
     save_splits_to: str = None,
+    oversample: bool = False,
+    rt_shift_prob: float = 0.0,
+    rt_shift_mean: float = 0.0,
+    rt_shift_std: float = 0.0,
+    noise_prob: float = 0.0,
+    noise_max: float = 1.0,
 ):
     samples, class_to_idx = scan_dataset(root_dir)
     train_idx, val_idx, test_idx = stratified_split(samples, train_frac, val_frac, test_frac, seed)
@@ -305,15 +367,32 @@ def create_dataloaders(
         save_split_csv(samples, test_idx, out / "test_split.csv")
         print(f"[dataset] Splits sauvegardés dans {out}")
 
+    train_transform = build_train_transform(
+        rt_shift_prob=rt_shift_prob, rt_shift_mean=rt_shift_mean, rt_shift_std=rt_shift_std,
+        noise_prob=noise_prob, noise_max=noise_max,
+    )
     train_ds = MS1NpyDataset(train_samples, target_size=target_size, normalize=normalize,
-                              noise_threshold=noise_threshold)
+                              noise_threshold=noise_threshold, transform=train_transform)
     val_ds = MS1NpyDataset(val_samples, target_size=target_size, normalize=normalize,
                             noise_threshold=noise_threshold)
     test_ds = MS1NpyDataset(test_samples, target_size=target_size, normalize=normalize,
                              noise_threshold=noise_threshold)
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                               num_workers=num_workers, pin_memory=True)
+    if oversample:
+        # Suréchantillonnage : chaque échantillon du train a une proba de
+        # tirage inversement proportionnelle à la fréquence de sa classe ->
+        # les classes rares (ex: Proteus mirabilis) sont vues aussi souvent
+        # que les fréquentes (ex: E. coli) au fil des epochs, en moyenne.
+        counts = Counter(s["label"] for s in train_samples)
+        sample_weights = [1.0 / counts[s["label"]] for s in train_samples]
+        sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_samples), replacement=True)
+        train_loader = DataLoader(train_ds, batch_size=batch_size, sampler=sampler,
+                                   num_workers=num_workers, pin_memory=True)
+        print(f"[dataset] Oversampling activé (WeightedRandomSampler) -- "
+              f"distribution train avant: {dict(counts)}")
+    else:
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                                   num_workers=num_workers, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
                              num_workers=num_workers, pin_memory=True)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False,
