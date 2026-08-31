@@ -58,11 +58,17 @@ except ImportError:
 #    les sous-espèces (ex: "Enterobacter hormaechei hoffmannii" -> hormaechei).
 # ---------------------------------------------------------------------------
 TARGET_CLASSES = {
-    "Escherichia coli":         lambda sp: sp.startswith("Escherichia coli"),
-    "Klebsiella pneumoniae":    lambda sp: sp.startswith("Klebsiella pneumoniae"),
-    "Enterobacter hormaechei":  lambda sp: sp.startswith("Enterobacter hormaechei"),
-    "Proteus mirabilis":        lambda sp: sp.startswith("Proteus mirabilis"),
-    "Citrobacter freundii":     lambda sp: sp.startswith("Citrobacter freundii"),
+    "Escherichia coli":              lambda sp: sp.startswith("Escherichia coli"),
+    "Klebsiella pneumoniae":         lambda sp: sp.startswith("Klebsiella pneumoniae"),
+    "Enterobacter hormaechei":       lambda sp: sp.startswith("Enterobacter hormaechei"),
+    "Proteus mirabilis":             lambda sp: sp.startswith("Proteus mirabilis"),
+    "Citrobacter freundii":          lambda sp: sp.startswith("Citrobacter freundii"),
+    "Citrobacter koseri":            lambda sp: sp.startswith("Citrobacter koseri"),
+    "Klebsiella aerogenes":          lambda sp: sp.startswith("Klebsiella aerogenes"),
+    "Klebsiella michiganensis":      lambda sp: sp.startswith("Klebsiella michiganensis"),
+    "Klebsiella oxytoca":            lambda sp: sp.startswith("Klebsiella oxytoca"),
+    "Klebsiella quasipneumoniae":    lambda sp: sp.startswith("Klebsiella quasipneumoniae"),
+    "Salmonella enterica":           lambda sp: sp.startswith("Salmonella enterica"),
 }
 
 # ---------------------------------------------------------------------------
