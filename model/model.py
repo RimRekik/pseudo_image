@@ -34,6 +34,10 @@ def _adapt_first_conv_to_1_channel(conv: nn.Conv2d, pretrained: bool) -> nn.Conv
             new_conv.weight.copy_(conv.weight.mean(dim=1, keepdim=True))
     return new_conv
 
+def species_to_genus(species_name: str) -> str:
+    """Extrait le genre (1er mot) d'un nom d'espèce complet, ex:
+    'Klebsiella pneumoniae' -> 'Klebsiella'."""
+    return species_name.strip().split(" ")[0]
 
 def build_model(num_classes: int, backbone: str = "resnet18", pretrained: bool = True,
                  freeze_backbone: bool = False) -> nn.Module:
